@@ -37,6 +37,9 @@
 #include "network_ra.h"
 #include "service_provider.h"
 
+#include <boost/asio.hpp>
+#include <iostream>
+
 
 // Used to send requests to the service provider sample.  It
 // simulates network communication between the ISV app and the
@@ -49,13 +52,37 @@
 
 // @return int
 
+#define MAX_BUF_SIZE 1024
+
+using boost::asio::ip::tcp;
+boost::asio::io_context io_context;
+tcp::socket s(io_context);
+bool connected = false;
+
+uint8_t* reply;
+
+int connect(std::string url, std::string port){
+    try
+    {
+        reply = (uint8_t*) malloc(MAX_BUF_SIZE);
+        tcp::resolver resolver(io_context);
+        boost::asio::connect(s, resolver.resolve(url, port));
+        connected = true;
+        return 0;
+    }catch (std::exception& e){
+        std::cerr << "Exception: " << e.what() << "\n";
+        free(reply);
+        return -1;
+    }
+}
+
 int ra_network_send_receive(const char *server_url,
     const ra_samp_request_header_t *p_req,
     ra_samp_response_header_t **p_resp)
 {
     int ret = 0;
     ra_samp_response_header_t* p_resp_msg;
-
+    
     if((NULL == server_url) ||
         (NULL == p_req) ||
         (NULL == p_resp))
@@ -63,87 +90,90 @@ int ra_network_send_receive(const char *server_url,
         return -1;
     }
 
+    if(!connected){
+        int result = connect("localhost", "8000");
+        if(result) return -1;
+    }
+
+    
+
+    int wrote = 0;
+    int read = 0;
     switch(p_req->type)
     {
 
     case TYPE_RA_MSG0:
-        ret = sp_ra_proc_msg0_req((const sample_ra_msg0_t*)((uint8_t*)p_req
+        wrote = boost::asio::write(s, boost::asio::buffer(((uint8_t*)p_req
             + sizeof(ra_samp_request_header_t)),
-            p_req->size);
-
-        ////////////////////////////////
-        // EDIT
-        ////////////////////////////////
-        //ra_samp_response_header_t* p_att_result_msg_full = NULL;
-        *p_resp = (ra_samp_response_header_t*) malloc(sizeof(ra_samp_response_header_t));
-        (*p_resp)->size = 0;
-        (*p_resp)->type = 0;
-        //p_resp_msg = p_att_result_msg_full;
-        ////////////////////////////////
-        // END EDIT
-        ////////////////////////////////
-
-
-        if (0 != ret)
+            p_req->size));
+        /*ret = sp_ra_proc_msg0_req((const sample_ra_msg0_t*)((uint8_t*)p_req
+            + sizeof(ra_samp_request_header_t)),
+            p_req->size);*/
+        if (wrote != p_req->size)
         {
             fprintf(stderr, "\nError, call sp_ra_proc_msg1_req fail [%s].",
                 __FUNCTION__);
+            ret = -1;
         }
         break;
 
     case TYPE_RA_MSG1:
-        ret = sp_ra_proc_msg1_req((const sample_ra_msg1_t*)((uint8_t*)p_req
+        wrote = boost::asio::write(s, boost::asio::buffer(((uint8_t*)p_req
+            + sizeof(ra_samp_request_header_t)),
+            p_req->size));
+        /*ret = sp_ra_proc_msg1_req((const sample_ra_msg1_t*)((uint8_t*)p_req
             + sizeof(ra_samp_request_header_t)),
             p_req->size,
-            &p_resp_msg);
-        if(0 != ret)
+            &p_resp_msg);*/
+        read = boost::asio::read(s,
+        //TODO Get the actual size
+            boost::asio::buffer(reply, 1)); 
+        if((wrote != p_req->size) || (read != 1))
         {
             fprintf(stderr, "\nError, call sp_ra_proc_msg1_req fail [%s].",
                 __FUNCTION__);
+            ret = -1;
         }
         else
         {
-            *p_resp = p_resp_msg;
+            *p_resp = (ra_samp_response_header_t*) reply;
         }
         break;
 
     case TYPE_RA_MSG3:
-        ret =sp_ra_proc_msg3_req((const sample_ra_msg3_t*)((uint8_t*)p_req +
+
+        wrote = boost::asio::write(s, boost::asio::buffer(((uint8_t*)p_req +
+            sizeof(ra_samp_request_header_t)),
+            p_req->size));
+
+        /*ret =sp_ra_proc_msg3_req((const sample_ra_msg3_t*)((uint8_t*)p_req +
             sizeof(ra_samp_request_header_t)),
             p_req->size,
-            &p_resp_msg);
+            &p_resp_msg);*/
+        read = boost::asio::read(s,
+        //TODO Get the actual size
+            boost::asio::buffer(reply, 1)); 
 
-        p_resp_msg->size += 18;
-         
-        if(0 != ret)
+        if((wrote != p_req->size) || (read != 1))
         {
             fprintf(stderr, "\nError, call sp_ra_proc_msg3_req fail [%s].",
                 __FUNCTION__);
+            ret = -1;
         }
         else
         {
-            *p_resp = p_resp_msg;
+            *p_resp = (ra_samp_response_header_t*) reply;
         }
         break;
     
     case TYPE_RA_OUTPUT:
-        ret = sp_ra_proc_msg_output_req((const life_input_t*) ((uint8_t*)p_req + 
+        wrote = boost::asio::write(s, boost::asio::buffer(((uint8_t*)p_req + 
+            sizeof(ra_samp_request_header_t)),
+            p_req->size));
+
+/*        ret = sp_ra_proc_msg_output_req((const life_input_t*) ((uint8_t*)p_req + 
                                 sizeof(ra_samp_request_header_t)),
-                                p_req->size);
-
-        ////////////////////////////////
-        // EDIT
-        ////////////////////////////////
-        //ra_samp_response_header_t* p_att_result_msg_full = NULL;
-        *p_resp = (ra_samp_response_header_t*) malloc(sizeof(ra_samp_response_header_t));
-        (*p_resp)->size = 0;
-        (*p_resp)->type = 4;
-        //p_resp_msg = p_att_result_msg_full;
-        ////////////////////////////////
-        // END EDIT
-        ////////////////////////////////
-
-
+                                p_req->size);*/
         break;
 
     default:
@@ -166,6 +196,6 @@ void ra_free_network_response_buffer(ra_samp_response_header_t *resp)
 {
     if(resp!=NULL)
     {
-        free(resp);
+        free(reply);
     }
 }

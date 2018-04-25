@@ -17,7 +17,7 @@
 #include "chat_message.hpp"
 using boost::asio::ip::tcp;
 
-const int max_length = 1024;
+const int max_length = 2024;
 chat_message read_msg_;
 
 
@@ -42,7 +42,7 @@ void session(tcp::socket sock)
       char data[max_length];
 
       boost::system::error_code error;
-      size_t length = sock.read_some(boost::asio::buffer(read_msg_.data(), chat_message::header_length), error);
+      size_t length = sock.read_some(boost::asio::buffer(data, sizeof(ra_samp_request_header_t)), error);
       if (error == boost::asio::error::eof){
         std::cout << "Connection close by peer\n";
         break; // Connection closed cleanly by peer.
@@ -50,11 +50,17 @@ void session(tcp::socket sock)
         throw boost::system::system_error(error); // Some other error.
       }
 
+      /*
       if( !read_msg_.decode_header()){
         std::cout << "Error reading header\n";
         break;
       }
-      sock.read_some(boost::asio::buffer(read_msg_.body(), read_msg_.body_length()), error);
+      */
+      ra_samp_request_header_t *header = (ra_samp_request_header_t*) data;
+      printf("Received size: %d\n", header->size);
+      printf("Received type: %d\n", header->type);
+
+      sock.read_some(boost::asio::buffer(data+sizeof(*header), header->size), error);
       if (error == boost::asio::error::eof)
         break; // Connection closed cleanly by peer.
       else if (error)
@@ -66,27 +72,32 @@ void session(tcp::socket sock)
       // EDIT
       ////////////////////////////////
       // set message
+      /*
       ra_samp_request_header_t *p_msg0_full = NULL;
       p_msg0_full = (ra_samp_request_header_t*)
-        malloc(sizeof(ra_samp_request_header_t) +sizeof(uint32_t));
-      p_msg0_full->type = TYPE_RA_MSG0; // read_msg_.type(); // e.g., TYPE_RA_MSG0;
+        malloc(sizeof(ra_samp_request_header_t) + sizeof(uint32_t));
+      p_msg0_full->type = read_msg_.type(); // e.g., TYPE_RA_MSG0;
       p_msg0_full->size = sizeof(uint32_t);
       uint32_t extended_epid_group_id = 0;
       *(uint32_t*)((uint8_t*)p_msg0_full + sizeof(ra_samp_request_header_t)) = extended_epid_group_id;
 
       // et buffer
       ra_samp_response_header_t *p_msg0_resp_full = NULL;
+      */
+
+      ra_samp_response_header_t *p_msg0_resp_full = NULL;
 
       // receive message
       ra_network_send_receive(
         "http://example.com",
-        p_msg0_full,
+        (ra_samp_request_header_t*) data,
         &p_msg0_resp_full
       );
 
-      // free mem
-      ra_free_network_response_buffer(p_msg0_resp_full);
-      SAFE_FREE(p_msg0_full);
+      printf("Response size: %d\n", p_msg0_resp_full->size);
+      printf("Response type: %d\n", p_msg0_resp_full->type);
+
+
       ////////////////////////////////
       // END EDIT
       ////////////////////////////////
@@ -94,7 +105,21 @@ void session(tcp::socket sock)
 
 
       // wirte to dump to socket
-      boost::asio::write(sock, boost::asio::buffer(read_msg_.body(), read_msg_.body_length()));
+      boost::asio::write(sock, boost::asio::buffer(
+        p_msg0_resp_full, 
+        sizeof(ra_samp_response_header_t) + p_msg0_resp_full->size)
+      );
+
+
+
+      ////////////////////////////////
+      // EDIT
+      ////////////////////////////////
+      // free mem
+      ra_free_network_response_buffer(p_msg0_resp_full);
+      ////////////////////////////////
+      // END EDIT
+      ////////////////////////////////
     }
   }
   catch (std::exception& e)
