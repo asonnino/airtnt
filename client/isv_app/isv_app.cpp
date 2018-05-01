@@ -323,7 +323,7 @@ int main(int argc, char* argv[])
             ret = sgx_ra_get_msg1(context, enclave_id, sgx_ra_get_ga,
                                   (sgx_ra_msg1_t*)((uint8_t*)p_msg1_full
                                   + sizeof(ra_samp_request_header_t)));
-            sleep(3); // Wait 3s between retries
+            //sleep(3); // Wait 3s between retries
         } while (SGX_ERROR_BUSY == ret && busy_retry_time--);
         if(SGX_SUCCESS != ret)
         {
@@ -661,39 +661,33 @@ int main(int argc, char* argv[])
 
         // Get the shared secret sent by the server using SK (if attestation
         // passed)
+
+        uint8_t* p_msg_reply;
+        uint8_t* buffer = (uint8_t*)  malloc(p_att_result_msg_body->secret.payload_size);
+        memcpy(buffer, p_att_result_msg_body->secret.payload, p_att_result_msg_body->secret.payload_size);
+        uint8_t* result = (uint8_t*) malloc(p_att_result_msg_body->secret.payload_size);
+        
         if(attestation_passed)
         {
+            do{
+                printf("Received msg size: %d\n", p_att_result_msg_body->secret.payload_size);
 
-            printf("Received msg size: %d\n", p_att_result_msg_body->secret.payload_size);
+                for(int i = 0; i < p_att_result_msg_body->secret.payload_size; i++){
+                    printf("%d,", buffer[i]);
+                }            
+                printf("\n");
+                int result_size;
+                sgx_aes_gcm_128bit_key_t result_key;
+                for(int i =  0; i < SGX_AESGCM_KEY_SIZE; i++){
+                    result_key[i] = i;
+                }
 
-            int result_size;
-            uint8_t* result = (uint8_t*) malloc(p_att_result_msg_body->secret.payload_size);
-            sgx_aes_gcm_128bit_key_t result_key;
-            for(int i =  0; i < SGX_AESGCM_KEY_SIZE; i++){
-                result_key[i] = i;
-            }
+                sgx_aes_gcm_128bit_tag_t out_mac;
 
-            sgx_aes_gcm_128bit_tag_t out_mac;
- /*           for(int i =  0; i < SGX_AESGCM_MAC_SIZE; i++){
-                out_mac[i] = i;
-            }
-            printf("Orig mac:");
-            for(int i =  0; i < SGX_AESGCM_MAC_SIZE; i++){
-              printf("%d,", out_mac[i]);
-            }
-            printf("\n");
-
-
-            printf("Orig key:");
-            for(int i =  0; i < SGX_AESGCM_KEY_SIZE; i++){
-              printf("%d,", result_key[i]);
-            }
-            printf("\n");*/
-
-            ret = put_secret_data(enclave_id,
+                ret = put_secret_data(enclave_id,
                                   &status,
                                   context,
-                                  p_att_result_msg_body->secret.payload,
+                                  buffer, //p_att_result_msg_body->secret.payload,
                                   p_att_result_msg_body->secret.payload_size,
                                   p_att_result_msg_body->secret.payload_tag,
                                   result,
@@ -701,93 +695,37 @@ int main(int argc, char* argv[])
                                   &result_key,
                                   &out_mac);
 
-/*            printf("Got result size: %d\n", result_size); 
-            printf("Got key:");
-            for(int i =  0; i < SGX_AESGCM_KEY_SIZE; i++){
-              printf("%d,", result_key[i]);
-            }
-            printf("\n");
+                //send back the result
+                uint32_t output_size = p_att_result_msg_body->secret.payload_size; //we assume that input is the same as output
 
-            printf("Got mac:");
-            for(int i =  0; i < SGX_AESGCM_MAC_SIZE; i++){
-              printf("%d,", out_mac[i]);
-            }
-            printf("\n");
-            //initialization vector - we keep it everywhere the same for now
-            uint8_t result_iv[12] = {0};
-            sgx_aes_gcm_128bit_key_t* result_key_ = (sgx_aes_gcm_128bit_key_t*) &result_key;
+                ra_samp_request_header_t* p_msg_result = (ra_samp_request_header_t*)
+                    malloc(sizeof(ra_samp_request_header_t)
+                    +output_size);
+                if (NULL == p_msg_result)
+                {
+                    ret = -1;
+                    goto CLEANUP;
+                }
+                p_msg_result->type = TYPE_RA_OUTPUT;
+                p_msg_result->size = output_size;
 
-            uint8_t decrypted[p_att_result_msg_body->secret.payload_size];
-            uint8_t decrypted2[p_att_result_msg_body->secret.payload_size];
+                memcpy((uint8_t*)p_msg_result + sizeof(ra_samp_request_header_t), result, output_size);
 
+                ret = ra_network_send_receive("http://SampleServiceProvider.intel.com/",
+                                        p_msg_result,
+                                        (ra_samp_response_header_t**) &p_msg_reply); //TODO: Change it - for now, we don't assume any response
 
-            sgx_aes_gcm_128bit_key_t random_key;
-            for(int i = 0; i < SGX_AESGCM_KEY_SIZE; i++){
-                random_key[i] = i;
-            }
-
-            sgx_aes_gcm_128bit_key_t shared_key;
-            
-            for(int i = 0; i < SGX_AESGCM_KEY_SIZE; i++){
-                shared_key[i] = 10;
-            }
-
-            int dec_enc_status = decrypt(random_key,
-                                         result,
-                                         p_att_result_msg_body->secret.payload_size, //output is the same size as intput
-                                         decrypted,
-                                         &result_iv[0],
-                                         12,
-                                         NULL,
-                                         0,
-                                         NULL);
-            
-
-            dec_enc_status = decrypt(shared_key,
-                                         decrypted,
-                                         p_att_result_msg_body->secret.payload_size, //output is the same size as intput
-                                         decrypted2,
-                                         &result_iv[0],
-                                         12,
-                                         NULL,
-                                         0,
-                                         NULL);
-
-            printf("Decrypted buffer from the enclave:");
-            for(int i = 0; i < p_att_result_msg_body->secret.payload_size; i++){
-                printf("%d,", decrypted2[i]);
-            } 
-            printf("\n");
-            
-            if(dec_enc_status > -1){
-                printf("Enclave Decryption Successful\n");
-            }else{
-                printf("Enclave Decryption Failed\n");
-            }*/
-
-            //send back the result
-            uint32_t output_size = p_att_result_msg_body->secret.payload_size; //we assume that input is the same as output
-
-            ra_samp_request_header_t* p_msg_result = (ra_samp_request_header_t*)
-                malloc(sizeof(ra_samp_request_header_t)
-                +output_size);
-            if (NULL == p_msg_result)
-            {
-                ret = -1;
-                goto CLEANUP;
-            }
-            p_msg_result->type = TYPE_RA_OUTPUT;
-            p_msg_result->size = output_size;
-
-            memcpy((uint8_t*)p_msg_result + sizeof(ra_samp_request_header_t), result, output_size);
-
-            ra_samp_response_header_t* p_msg_reply = (ra_samp_response_header_t*)  malloc(1);
-            ret = ra_network_send_receive("http://SampleServiceProvider.intel.com/",
-                                      p_msg_result,
-                                      &p_msg_reply); //TODO: Change it - for now, we don't assume any response
+                printf("Received network buffer: ");
+                for(int i = 0; i < sizeof(ra_samp_response_header_t) + p_att_result_msg_body->secret.payload_size; i++){
+                    printf("%d,", p_msg_reply[i]);
+                }
+                memcpy(buffer, (uint8_t*) p_msg_reply + sizeof(ra_samp_response_header_t), p_att_result_msg_body->secret.payload_size); 
+                getchar();
+            }while(1);
 
             free(result);
             free (p_msg_reply);
+            free(buffer);
 
  
             if((SGX_SUCCESS != ret)  || (SGX_SUCCESS != status))

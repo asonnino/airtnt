@@ -114,6 +114,8 @@ unsigned long msg_size = sizeof(life_input_t) + (size * size * sizeof(char));
 
 sample_spid_t g_spid;
 
+sample_aes_gcm_128bit_key_t global_key;
+
 
 // Verify message 0 then configure extended epid group.
 int sp_ra_proc_msg0_req(const sample_ra_msg0_t *p_msg0,
@@ -618,7 +620,7 @@ int sp_ra_proc_msg3_req(const sample_ra_msg3_t *p_msg3,
         memset(p_att_result_msg_full, 0, att_result_msg_size
                + sizeof(ra_samp_response_header_t) + msg_size);
         p_att_result_msg_full->type = TYPE_RA_ATT_RESULT;
-        p_att_result_msg_full->size = att_result_msg_size;
+        p_att_result_msg_full->size = att_result_msg_size + msg_size;
         if(IAS_QUOTE_OK != attestation_report.status)
         {
             p_att_result_msg_full->status[0] = 0xFF;
@@ -740,6 +742,11 @@ int sp_ra_proc_msg3_req(const sample_ra_msg3_t *p_msg3,
                         0,
                         &p_att_result_msg->secret.payload_tag);
         }
+
+
+        // copy to global
+        memcpy(global_key, g_sp_db.sk_key, sizeof(sample_aes_gcm_128bit_key_t));
+
     }while(0);
 
     if(ret)
@@ -756,7 +763,7 @@ int sp_ra_proc_msg3_req(const sample_ra_msg3_t *p_msg3,
 }
 
 int sp_ra_proc_msg_output_req(const life_input_t *p_output,
-                                uint32_t output_size){
+                                uint32_t output_size, ra_samp_response_header_t **pp_att_result_msg){
 
     uint8_t iv[12] = {0};
     printf("Got output size: %d\n", output_size); 
@@ -804,6 +811,136 @@ int sp_ra_proc_msg_output_req(const life_input_t *p_output,
     printf("\n");
 
 
+
+    life_input_t* input = (life_input_t*) malloc(msg_size);
+    input->size = size;
+    input->steps = 100;
+    memset(&input->array[0], '0', size * size);        
+    input->array[3] = '1';
+    input->array[4] = '1';
+    input->array[5] = '1';
+
+
+    ra_samp_response_header_t *p_att_result_msg = (ra_samp_response_header_t*)malloc(sizeof(ra_samp_response_header_t)+msg_size);
+
+    printf("p_att_result_msg pointer: %d\n", p_att_result_msg);
+
+
+    p_att_result_msg->type = 6;
+    p_att_result_msg->size = msg_size;
+
+
+    uint8_t aes_gcm_iv[SAMPLE_SP_IV_SIZE] = {0};
+
+    fprintf(stderr, "Encryption TODO.\n");
+    
+    ret = sample_rijndael128GCM_encrypt(
+        &global_key,
+        (uint8_t*) input,
+        msg_size,
+        (uint8_t*) (p_att_result_msg)+sizeof(ra_samp_response_header_t),
+        &aes_gcm_iv[0],
+        SAMPLE_SP_IV_SIZE,
+        NULL,
+        0,
+        NULL
+    );
+
+    free(input);
+    
+    fprintf(stderr, "Encryption Done.\n");
+
+    *pp_att_result_msg = p_att_result_msg;
+    printf("p_att_result_msg pointer: %d\n", p_att_result_msg);
+    printf("pp_att_result_msg pointer: %d\n", *pp_att_result_msg);
+
+    fprintf(stderr, "Assignment Done.\n");
+
     return 0;
+}
+
+
+
+
+
+// Process remote attestation message input
+int sp_ra_proc_msg_input_req(const sample_ra_msg_input_t *p_msg3, uint32_t msg3_size,
+    ra_samp_response_header_t **pp_att_result_msg)
+{
+    int ret = 0;
+    sample_status_t sample_ret = SAMPLE_SUCCESS;
+    const uint8_t *p_msg3_cmaced = NULL;
+    sample_quote_t *p_quote = NULL;
+    sample_sha_state_handle_t sha_handle = NULL;
+    sample_report_data_t report_data = {0};
+    sample_ra_att_result_msg_t *p_att_result_msg = NULL;
+    ra_samp_response_header_t* p_att_result_msg_full = NULL;
+    uint32_t i;
+
+    if((!p_msg3) ||
+       (msg3_size < sizeof(sample_ra_msg3_t)) ||
+       (!pp_att_result_msg))
+    {
+        return SP_INTERNAL_ERROR;
+    }
+
+    // Check to see if we have registered?
+    if (!g_is_sp_registered)
+    {
+        return SP_UNSUPPORTED_EXTENDED_EPID_GROUP;
+    }
+    do
+    {
+
+    
+        life_input_t* input = (life_input_t*) malloc(msg_size);
+        input->size = size;
+        input->steps = 100;
+        memset(&input->array[0], '0', size * size);        
+        input->array[3] = '1';
+        input->array[4] = '1';
+        input->array[5] = '1';
+
+        printf("Created an input message. Size: %lu\n", msg_size);
+        for(int i = 0; i < size; i++){
+            for(int j = 0; j < size; j++){
+                printf("%c ", input->array[i*size + j]);
+            }
+            printf("\n");
+        } 
+
+        uint8_t aes_gcm_iv[SAMPLE_SP_IV_SIZE] = {0};
+        /*
+        p_att_result_msg->secret.payload_size = msg_size;
+        if((IAS_QUOTE_OK == attestation_report.status) &&
+           (IAS_PSE_OK == attestation_report.pse_status) &&
+           (isv_policy_passed == true))
+        {
+        */
+            ret = sample_rijndael128GCM_encrypt(&g_sp_db.sk_key,
+                        (uint8_t*) input,
+                        msg_size,
+                        p_att_result_msg->secret.payload,
+                        &aes_gcm_iv[0],
+                        SAMPLE_SP_IV_SIZE,
+                        NULL,
+                        0,
+                        &p_att_result_msg->secret.payload_tag);
+        /*
+        }
+        */
+    }while(0);
+
+    if(ret)
+    {
+        *pp_att_result_msg = NULL;
+        SAFE_FREE(p_att_result_msg_full);
+    }
+    else
+    {
+        // Freed by the network simulator in ra_free_network_response_buffer
+        *pp_att_result_msg = p_att_result_msg_full;
+    }
+    return ret;
 }
 

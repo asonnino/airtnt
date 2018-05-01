@@ -128,6 +128,12 @@ typedef struct sample_ra_msg3_t
     uint8_t                     quote[];
 } sample_ra_msg3_t;
 
+typedef struct sample_ra_msg_input_t
+{
+    int id;
+    uint8_t quote[];
+} sample_ra_msg_input_t;
+
 int sp_ra_proc_msg0_req(const sample_ra_msg0_t *p_msg0,
     uint32_t msg0_size);
 
@@ -143,7 +149,10 @@ int sp_ra_free_msg2(
     sample_ra_msg2_t *p_msg2);
 
 int sp_ra_proc_msg_output_req(const life_input_t *p_output, 
-                                uint32_t output_size);
+                                uint32_t output_size, ra_samp_response_header_t **pp_att_result_msg);
+
+int sp_ra_proc_msg_input_req(const sample_ra_msg_input_t *p_msg3, uint32_t msg3_size,
+    ra_samp_response_header_t **pp_att_result_msg);
 
 typedef int (*sample_enroll)(int sp_credentials, sample_spid_t* spid,
     int* authentication_token);

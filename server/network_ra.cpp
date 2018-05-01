@@ -113,7 +113,6 @@ int ra_network_send_receive(const char *server_url,
             p_req->size,
             &p_resp_msg);
 
-        p_resp_msg->size += 18;
          
         if(0 != ret)
         {
@@ -129,21 +128,52 @@ int ra_network_send_receive(const char *server_url,
     case TYPE_RA_OUTPUT:
         ret = sp_ra_proc_msg_output_req((const life_input_t*) ((uint8_t*)p_req + 
                                 sizeof(ra_samp_request_header_t)),
-                                p_req->size);
+                                p_req->size, &p_resp_msg);
+
+        printf("NETWORK RA p_att_result_msg -- pointer: %d\n", p_resp_msg);
 
         ////////////////////////////////
         // EDIT
         ////////////////////////////////
         //ra_samp_response_header_t* p_att_result_msg_full = NULL;
-        *p_resp = (ra_samp_response_header_t*) malloc(sizeof(ra_samp_response_header_t));
-        (*p_resp)->size = 0;
-        (*p_resp)->type = 4;
+        //*p_resp = (ra_samp_response_header_t*) malloc(sizeof(ra_samp_response_header_t));
+        //(*p_resp)->size = 0;
+        //(*p_resp)->type = TYPE_RA_INPUT;
         //p_resp_msg = p_att_result_msg_full;
         ////////////////////////////////
         // END EDIT
         ////////////////////////////////
+        if(0 != ret)
+        {
+            fprintf(stderr, "\nError, call sp_ra_proc_msg3_req fail [%s].",
+                __FUNCTION__);
+        }
+        else
+        {
+            *p_resp = p_resp_msg;
+            printf("NETWORK RA p_att_result_msg -- value pointer: %d\n", *p_resp);
+        }
+        break;
 
 
+
+    case TYPE_RA_INPUT:
+        ret = sp_ra_proc_msg_input_req(
+            (const sample_ra_msg_input_t*)((uint8_t*)p_req+sizeof(ra_samp_request_header_t)),
+            p_req->size,
+            &p_resp_msg
+        );
+
+         
+        if(0 != ret)
+        {
+            fprintf(stderr, "\nError, call sp_ra_proc_msg3_req fail [%s].",
+                __FUNCTION__);
+        }
+        else
+        {
+            *p_resp = p_resp_msg;
+        }
         break;
 
     default:
