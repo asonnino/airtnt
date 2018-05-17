@@ -142,7 +142,7 @@ int main(int argc, char const *argv[]) {
     load_template(&letters, alphabet_length);
 
     // load input
-    char const *image_input = "./data/input_4.png";
+    char const *image_input = "./data/input_5_OK.png";
     vector< vector<int> > pixels;
     if (load_image(image_input, &pixels) != 0) {
         printf("Could not load input image: %s\n", image_input);

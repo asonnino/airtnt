@@ -44,6 +44,7 @@
 #include <string.h>
 #include "ias_ra.h"
 
+#include "misc.h"
 
 
 #ifndef SAFE_FREE
@@ -109,12 +110,17 @@ static int g_sp_credentials = 0;
 static int g_authentication_token = 0;
 
 //uint8_t g_secret[8] = {0,1,2,3,4,5,6,7};
-unsigned int size = 4;
+unsigned int size = 50;
 unsigned long msg_size = sizeof(life_input_t) + (size * size * sizeof(char));
 
 sample_spid_t g_spid;
 
 sample_aes_gcm_128bit_key_t global_key;
+
+
+///// COUNTER /////
+int counter = 0;
+
 
 
 // Verify message 0 then configure extended epid group.
@@ -172,8 +178,8 @@ int sp_ra_proc_msg0_req(const sample_ra_msg0_t *p_msg0,
 
 // Verify message 1 then generate and return message 2 to isv.
 int sp_ra_proc_msg1_req(const sample_ra_msg1_t *p_msg1,
-						uint32_t msg1_size,
-						ra_samp_response_header_t **pp_msg2)
+                        uint32_t msg1_size,
+                        ra_samp_response_header_t **pp_msg2)
 {
     int ret = 0;
     ra_samp_response_header_t* p_msg2_full = NULL;
@@ -443,8 +449,9 @@ int sp_ra_proc_msg1_req(const sample_ra_msg1_t *p_msg1,
 // Process remote attestation message 3
 int sp_ra_proc_msg3_req(const sample_ra_msg3_t *p_msg3,
                         uint32_t msg3_size,
-                        ra_samp_response_header_t **pp_att_result_msg)
+                        ra_samp_response_header_t **pp_att_result_msg, int steps, int max_iterations)
 {
+
     int ret = 0;
     sample_status_t sample_ret = SAMPLE_SUCCESS;
     const uint8_t *p_msg3_cmaced = NULL;
@@ -490,7 +497,7 @@ int sp_ra_proc_msg3_req(const sample_ra_msg3_t *p_msg3,
                                            &mac);
         if(SAMPLE_SUCCESS != sample_ret)
         {
-            fprintf(stderr, "\nError, cmac fail in [%s].", __FUNCTION__);
+            fprintf(stderr, "\nError, cmac fail in [%s].\n", __FUNCTION__);
             ret = SP_INTERNAL_ERROR;
             break;
         }
@@ -499,7 +506,7 @@ int sp_ra_proc_msg3_req(const sample_ra_msg3_t *p_msg3,
         ret = memcmp(&p_msg3->mac, mac, sizeof(mac));
         if(ret)
         {
-            fprintf(stderr, "\nError, verify cmac fail [%s].", __FUNCTION__);
+            fprintf(stderr, "\nError, verify cmac fail [%s].\n", __FUNCTION__);
             ret = SP_INTEGRITY_FAILED;
             break;
         }
@@ -507,7 +514,7 @@ int sp_ra_proc_msg3_req(const sample_ra_msg3_t *p_msg3,
         if(memcpy_s(&g_sp_db.ps_sec_prop, sizeof(g_sp_db.ps_sec_prop),
             &p_msg3->ps_sec_prop, sizeof(p_msg3->ps_sec_prop)))
         {
-            fprintf(stderr,"\nError, memcpy failed in [%s].", __FUNCTION__);
+            fprintf(stderr,"\nError, memcpy failed in [%s].\n", __FUNCTION__);
             ret = SP_INTERNAL_ERROR;
             break;
         }
@@ -530,7 +537,7 @@ int sp_ra_proc_msg3_req(const sample_ra_msg3_t *p_msg3,
         sample_ret = sample_sha256_init(&sha_handle);
         if(sample_ret != SAMPLE_SUCCESS)
         {
-            fprintf(stderr,"\nError, init hash failed in [%s].", __FUNCTION__);
+            fprintf(stderr,"\nError, init hash failed in [%s].\n", __FUNCTION__);
             ret = SP_INTERNAL_ERROR;
             break;
         }
@@ -538,7 +545,7 @@ int sp_ra_proc_msg3_req(const sample_ra_msg3_t *p_msg3,
                                      sizeof(g_sp_db.g_a), sha_handle);
         if(sample_ret != SAMPLE_SUCCESS)
         {
-            fprintf(stderr,"\nError, udpate hash failed in [%s].",
+            fprintf(stderr,"\nError, udpate hash failed in [%s].\n",
                     __FUNCTION__);
             ret = SP_INTERNAL_ERROR;
             break;
@@ -547,7 +554,7 @@ int sp_ra_proc_msg3_req(const sample_ra_msg3_t *p_msg3,
                                      sizeof(g_sp_db.g_b), sha_handle);
         if(sample_ret != SAMPLE_SUCCESS)
         {
-            fprintf(stderr,"\nError, udpate hash failed in [%s].",
+            fprintf(stderr,"\nError, udpate hash failed in [%s].\n",
                     __FUNCTION__);
             ret = SP_INTERNAL_ERROR;
             break;
@@ -594,6 +601,8 @@ int sp_ra_proc_msg3_req(const sample_ra_msg3_t *p_msg3,
             break;
         }
         FILE* OUTPUT = stdout;
+
+        #ifdef MYDEBUG 
         fprintf(OUTPUT, "\n\n\tAttestation Report:");
         fprintf(OUTPUT, "\n\tid: 0x%0x.", attestation_report.id);
         fprintf(OUTPUT, "\n\tstatus: %d.", attestation_report.status);
@@ -605,6 +614,7 @@ int sp_ra_proc_msg3_req(const sample_ra_msg3_t *p_msg3,
         // implementation, the attestation server could only send the PIB for certain attestation 
         // report statuses.  A product SP implementation needs to handle cases
         // where the PIB is zero length.
+        #endif    
 
         // Respond the client with the results of the attestation.
         uint32_t att_result_msg_size = sizeof(sample_ra_att_result_msg_t);
@@ -639,7 +649,7 @@ int sp_ra_proc_msg3_req(const sample_ra_msg3_t *p_msg3,
         // The platform_info_blob signature will be verified by the client
         // when sent. No need to have the Service Provider to check it.  The SP
         // should pass it down to the application for further analysis.
-
+        #ifdef MYDEBUG 
         fprintf(OUTPUT, "\n\n\tEnclave Report:");
         fprintf(OUTPUT, "\n\tSignature Type: 0x%x", p_quote->sign_type);
         fprintf(OUTPUT, "\n\tSignature Basename: ");
@@ -648,7 +658,9 @@ int sp_ra_proc_msg3_req(const sample_ra_msg3_t *p_msg3,
         {
             fprintf(OUTPUT, "%c", p_quote->basename.name[i]);
         }
+            
 #ifdef __x86_64__
+
         fprintf(OUTPUT, "\n\tattributes.flags: 0x%0lx",
                 p_quote->report_body.attributes.flags);
         fprintf(OUTPUT, "\n\tattributes.xfrm: 0x%0lx",
@@ -681,6 +693,7 @@ int sp_ra_proc_msg3_req(const sample_ra_msg3_t *p_msg3,
                 p_quote->report_body.isv_prod_id);
         fprintf(OUTPUT, "\n\tisv_svn: 0x%0x",p_quote->report_body.isv_svn);
         fprintf(OUTPUT, "\n");
+        #endif 
 
         // A product service provider needs to verify that its enclave properties 
         // match what is expected.  The SP needs to check these values before
@@ -712,12 +725,13 @@ int sp_ra_proc_msg3_req(const sample_ra_msg3_t *p_msg3,
     
         life_input_t* input = (life_input_t*) malloc(msg_size);
         input->size = size;
-        input->steps = 100;
+        input->steps = steps;
         memset(&input->array[0], '0', size * size);        
         input->array[3] = '1';
         input->array[4] = '1';
         input->array[5] = '1';
 
+        #ifdef MYDEBUG 
         printf("Created an input message. Size: %lu\n", msg_size);
         for(int i = 0; i < size; i++){
             for(int j = 0; j < size; j++){
@@ -725,6 +739,7 @@ int sp_ra_proc_msg3_req(const sample_ra_msg3_t *p_msg3,
             }
             printf("\n");
         } 
+        #endif
 
         uint8_t aes_gcm_iv[SAMPLE_SP_IV_SIZE] = {0};
         p_att_result_msg->secret.payload_size = msg_size;
@@ -743,6 +758,8 @@ int sp_ra_proc_msg3_req(const sample_ra_msg3_t *p_msg3,
                         &p_att_result_msg->secret.payload_tag);
         }
 
+        #ifdef MYDEBUG 
+        printf("Printing size: %d\n", msg_size);
         printf("Printing payload:\n");
         for (int i = 0; i < msg_size; ++i) {
             printf("%d ", p_att_result_msg->secret.payload[i]);
@@ -750,10 +767,19 @@ int sp_ra_proc_msg3_req(const sample_ra_msg3_t *p_msg3,
         printf("\n");
         
 
-
+        fprintf(stderr, "ENC KEY:\n");
+        for (int i = 0; i < sizeof(sample_aes_gcm_128bit_key_t); ++i)
+        {
+            fprintf(stderr, "%d", g_sp_db.sk_key[i]);
+        }
+        printf("\n");
+        #endif
 
         // copy to global
         memcpy(global_key, g_sp_db.sk_key, sizeof(sample_aes_gcm_128bit_key_t));
+
+        
+
 
     }while(0);
 
@@ -766,15 +792,29 @@ int sp_ra_proc_msg3_req(const sample_ra_msg3_t *p_msg3,
     {
         // Freed by the network simulator in ra_free_network_response_buffer
         *pp_att_result_msg = p_att_result_msg_full;
+
+        if (steps > max_iterations-counter) {
+            (*pp_att_result_msg)->steps = max_iterations-counter;
+        }
+        else {
+            (*pp_att_result_msg)->steps = steps;
+        }
+
+        counter += steps;
+
     }
     return ret;
 }
 
 int sp_ra_proc_msg_output_req(const life_input_t *p_output,
-                                uint32_t output_size, ra_samp_response_header_t **pp_att_result_msg){
+                                uint32_t output_size, ra_samp_response_header_t **pp_att_result_msg, 
+                                int steps, int max_iterations)
+{
 
     uint8_t iv[12] = {0};
-    printf("Got output size: %d\n", output_size); 
+    #ifdef MYDEBUG 
+    printf("Got output size: %d\n", output_size);
+    #endif 
     uint8_t buf[output_size];
 
     sample_ec_key_128bit_t random_key;
@@ -812,17 +852,43 @@ int sp_ra_proc_msg_output_req(const life_input_t *p_output,
                         0,
                         NULL);
    
+    #ifdef MYDEBUG 
     printf("Decrypted on service provider: ");
-    for(int i = 0; i < 16; i++){
+    for(int i = 0; i < msg_size; i++){
         printf("%d,", decrypted[i]);
     }
     printf("\n");
+    #endif
 
+    //fprintf(stderr, "counter %d, max %d, steps %d\n", counter, max_iterations, steps);
 
+    if (counter >= max_iterations) {
+
+        // init resp buffers
+        uint8_t* rep_buffer = (uint8_t*) malloc(
+            sizeof(ra_samp_response_header_t) + msg_size
+        );
+        memset(rep_buffer, 0, 
+            sizeof(ra_samp_response_header_t) + msg_size
+        );
+        ra_samp_response_header_t* rep_header = (ra_samp_response_header_t*) rep_buffer; 
+
+        // set size to zero
+        rep_header->type = 6;
+        rep_header->size = 0;
+
+        // copy result to server
+        *pp_att_result_msg = (ra_samp_response_header_t*) rep_buffer;
+
+        // reset counter
+        counter = 0;
+
+        return 0;
+    }
 
     life_input_t* input = (life_input_t*) malloc(msg_size);
     input->size = size;
-    input->steps = 100;
+    input->steps = steps;
     memset(&input->array[0], '0', size * size);        
     input->array[3] = '1';
     input->array[4] = '1';
@@ -830,40 +896,71 @@ int sp_ra_proc_msg_output_req(const life_input_t *p_output,
 
 
     // pointers
-    ra_samp_response_header_t* p_att_result_msg_full = NULL;
-    sample_ra_att_result_msg_t *p_att_result_msg = NULL;
+    ra_samp_response_header_t* rep_header = NULL;
+    
 
     // init p_att_result_msg_full (header + payload)
-    p_att_result_msg_full = (ra_samp_response_header_t*)malloc(
-        sizeof(sample_ra_att_result_msg_t) + sizeof(ra_samp_response_header_t) + msg_size
+    uint8_t* rep_buffer = (uint8_t*) malloc(
+        sizeof(ra_samp_response_header_t) + msg_size
     );
-    memset(p_att_result_msg_full, 0, 
-        sizeof(sample_ra_att_result_msg_t) + sizeof(ra_samp_response_header_t) + msg_size
+    rep_header = (ra_samp_response_header_t*) rep_buffer; 
+
+    memset(rep_buffer, 0, 
+        sizeof(ra_samp_response_header_t) + msg_size
     );
 
-    p_att_result_msg_full->type = 6;
-    p_att_result_msg_full->size = sizeof(sample_ra_att_result_msg_t) +  msg_size;
+    rep_header->type = 6;
+    rep_header->size = msg_size;
 
-    // link p_att_result_msg_full with p_att_result_msg (only payload)
-    p_att_result_msg = (sample_ra_att_result_msg_t *)p_att_result_msg_full->body;
-
-
-
-    printf("p_att_result_msg pointer: %d\n", p_att_result_msg);
+    #ifdef MYDEBUG 
+    printf("MESSAGE SIZE: %d\n", rep_header->size);
+    #endif 
 
 
+
+    uint8_t* tmp = (uint8_t*) input;
+    // printing input
+    #ifdef MYDEBUG 
+    printf("Created an input message. Size: %lu\n", msg_size);
+    for(int i = 0; i < msg_size; i++){
+        //printf("%c ", input->array[i*size + j]);
+        printf("%d ", tmp[i]);
+    } 
+    printf("\n");
+    #endif
 
 
     uint8_t aes_gcm_iv[SAMPLE_SP_IV_SIZE] = {0};
 
-    fprintf(stderr, "Encryption TODO.\n");
-    
+    #ifdef MYDEBUG 
+    fprintf(stderr, "ENC KEY:\n");
+    for (int i = 0; i < sizeof(sample_aes_gcm_128bit_key_t); ++i)
+    {
+        fprintf(stderr, "%d", global_key[i]);
+    }
+    printf("\n");
+    #endif
+    uint8_t* ebuf =  (uint8_t*) malloc (msg_size); //(uint8_t*) p_att_result_msg;
+
+    /*
     ret = sample_rijndael128GCM_encrypt(
         &global_key,
-        (uint8_t*) input,
+        tmp,
         msg_size,
-        //(uint8_t*) (p_att_result_msg)+sizeof(ra_samp_response_header_t),
-        p_att_result_msg->secret.payload,
+        ebuf, //(uint8_t*) (p_att_result_msg),
+        //p_att_result_msg->secret.payload,
+        &aes_gcm_iv[0],
+        SAMPLE_SP_IV_SIZE,
+        NULL,
+        0,
+        NULL
+    );
+    */
+    encrypt(
+        global_key,
+        tmp,
+        msg_size,
+        ebuf,
         &aes_gcm_iv[0],
         SAMPLE_SP_IV_SIZE,
         NULL,
@@ -871,21 +968,70 @@ int sp_ra_proc_msg_output_req(const life_input_t *p_output,
         NULL
     );
 
+
+
+    uint8_t buf_test[msg_size];
+    decrypt(
+        global_key,
+        ebuf,
+        msg_size,
+        buf_test,
+        &aes_gcm_iv[0],
+        SAMPLE_SP_IV_SIZE,
+        NULL,
+        0,
+        NULL
+    );
+
+    #ifdef MYDEBUG 
+    printf("Test dect: \n");
+    for (int i = 0; i < msg_size; ++i)
+    {
+        printf("%d ", buf_test[i]);
+    }
+    printf("\n");
+    #endif
+
+
+    memcpy(rep_buffer + sizeof(ra_samp_response_header_t), ebuf, msg_size);
+
+    #ifdef MYDEBUG 
     printf("Printing payload:\n");
         for (int i = 0; i < msg_size; ++i) {
-            printf("%d ", p_att_result_msg[i]);
+            printf("%d ", rep_buffer[i]);//p_att_result_msg[i]);
         }
         printf("\n");
 
+        for (int i = 0; i < msg_size; ++i) {
+            printf("%d ", ebuf[i]);//p_att_result_msg[i]);
+        }
+        printf("\n");
+    #endif
+
     free(input);
     
+    #ifdef MYDEBUG 
     fprintf(stderr, "Encryption Done.\n");
+    #endif
 
-    *pp_att_result_msg = p_att_result_msg_full;
-    printf("p_att_result_msg pointer: %d\n", p_att_result_msg);
-    printf("pp_att_result_msg pointer: %d\n", *pp_att_result_msg);
+    *pp_att_result_msg = (ra_samp_response_header_t*) rep_buffer;
+/*    printf("p_att_result_msg pointer: %d\n", p_att_result_msg);
+    printf("pp_att_result_msg pointer: %d\n", *pp_att_result_msg);*/
 
+    if (steps > max_iterations-counter) {
+        (*pp_att_result_msg)->steps = max_iterations-counter;
+    }
+    else {
+        (*pp_att_result_msg)->steps = steps;
+    }
+
+    #ifdef MYDEBUG 
     fprintf(stderr, "Assignment Done.\n");
+    #endif
+    
+    // update counter
+    counter += steps;
+
 
     return 0;
 }
@@ -898,6 +1044,10 @@ int sp_ra_proc_msg_output_req(const life_input_t *p_output,
 int sp_ra_proc_msg_input_req(const sample_ra_msg_input_t *p_msg3, uint32_t msg3_size,
     ra_samp_response_header_t **pp_att_result_msg)
 {
+
+    printf("We don't wanna see this\n");
+    return 0;
+   
     int ret = 0;
     sample_status_t sample_ret = SAMPLE_SUCCESS;
     const uint8_t *p_msg3_cmaced = NULL;
@@ -941,6 +1091,7 @@ int sp_ra_proc_msg_input_req(const sample_ra_msg_input_t *p_msg3, uint32_t msg3_
         } 
 
         uint8_t aes_gcm_iv[SAMPLE_SP_IV_SIZE] = {0};
+      
         /*
         p_att_result_msg->secret.payload_size = msg_size;
         if((IAS_QUOTE_OK == attestation_report.status) &&
@@ -948,6 +1099,7 @@ int sp_ra_proc_msg_input_req(const sample_ra_msg_input_t *p_msg3, uint32_t msg3_
            (isv_policy_passed == true))
         {
         */
+
             ret = sample_rijndael128GCM_encrypt(&g_sp_db.sk_key,
                         (uint8_t*) input,
                         msg_size,
@@ -971,6 +1123,8 @@ int sp_ra_proc_msg_input_req(const sample_ra_msg_input_t *p_msg3, uint32_t msg3_
     {
         // Freed by the network simulator in ra_free_network_response_buffer
         *pp_att_result_msg = p_att_result_msg_full;
+
+
     }
     return ret;
 }

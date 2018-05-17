@@ -37,6 +37,7 @@
 #include "network_ra.h"
 #include "service_provider.h"
 
+#include "misc.h"
 
 // Used to send requests to the service provider sample.  It
 // simulates network communication between the ISV app and the
@@ -51,7 +52,10 @@
 
 int ra_network_send_receive(const char *server_url,
     const ra_samp_request_header_t *p_req,
-    ra_samp_response_header_t **p_resp)
+    ra_samp_response_header_t **p_resp,
+    int steps, 
+    int max_iterations
+)
 {
     int ret = 0;
     ra_samp_response_header_t* p_resp_msg;
@@ -111,7 +115,7 @@ int ra_network_send_receive(const char *server_url,
         ret =sp_ra_proc_msg3_req((const sample_ra_msg3_t*)((uint8_t*)p_req +
             sizeof(ra_samp_request_header_t)),
             p_req->size,
-            &p_resp_msg);
+            &p_resp_msg, steps, max_iterations);
 
          
         if(0 != ret)
@@ -128,9 +132,8 @@ int ra_network_send_receive(const char *server_url,
     case TYPE_RA_OUTPUT:
         ret = sp_ra_proc_msg_output_req((const life_input_t*) ((uint8_t*)p_req + 
                                 sizeof(ra_samp_request_header_t)),
-                                p_req->size, &p_resp_msg);
+                                p_req->size, &p_resp_msg, steps, max_iterations);
 
-        printf("NETWORK RA p_att_result_msg -- pointer: %d\n", p_resp_msg);
 
         if(0 != ret)
         {
@@ -140,7 +143,6 @@ int ra_network_send_receive(const char *server_url,
         else
         {
             *p_resp = p_resp_msg;
-            printf("NETWORK RA p_att_result_msg -- value pointer: %d\n", *p_resp);
         }
         break;
 
